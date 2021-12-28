@@ -6,7 +6,6 @@ by searching in private_domains list.
 **GoNS currently supports only IPv4 addresses for internal resolving**
 
 ### Build
-
 ```go build -o gons main.go```
 
 ### Run
