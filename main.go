@@ -18,14 +18,15 @@ var privateDomains map[string][4]byte
 
 type Config struct {
 	Server struct {
-		ExternalDNS string `yaml:"external_dns"`
-		ListenAddr  string `yaml:"listen_addr"`
-		ListenPort  int    `yaml:"listen_port"`
+		ExternalDNS string   `yaml:"external_dns"`
+		ListenAddr  string   `yaml:"listen_addr"`
+		ListenPort  int      `yaml:"listen_port"`
+		AllowedIps  []string `yaml:"allowed_ips"`
 	}
 	NSZones map[string]map[string]string `yaml:"private_domains"`
 }
 
-var ExternalDNS string
+var CurrentConfig Config
 
 func newAResource(query dnsmessage.Name, a [4]byte) dnsmessage.Resource {
 	return dnsmessage.Resource{
@@ -40,6 +41,16 @@ func newAResource(query dnsmessage.Name, a [4]byte) dnsmessage.Resource {
 	}
 }
 
+func isAllowedIp(ipAddr *net.UDPAddr) bool {
+	for _, cidr := range CurrentConfig.Server.AllowedIps {
+		allowedIp, allowedNet, _ := net.ParseCIDR(cidr)
+		if allowedNet.Contains(ipAddr.IP) || allowedIp.String() == ipAddr.IP.String() {
+			return true
+		}
+	}
+	return false
+}
+
 func isPrivateHost(name string) bool {
 	if _, ok := privateDomains[name]; ok {
 		return true
@@ -51,7 +62,7 @@ func isPrivateHost(name string) bool {
 func externalDNSCheck(req []byte) []byte {
 	buf := make([]byte, maxBufferSize)
 
-	conn, err := net.Dial("udp", ExternalDNS)
+	conn, err := net.Dial("udp", fmt.Sprintf("%s:53", CurrentConfig.Server.ExternalDNS))
 	defer conn.Close()
 
 	if err != nil {
@@ -125,17 +136,16 @@ func main() {
 		panic(err)
 	}
 	defer f.Close()
-	var cfg Config
 	decoder := yaml.NewDecoder(f)
-	err = decoder.Decode(&cfg)
+	err = decoder.Decode(&CurrentConfig)
 	if err != nil {
 		panic(err)
 	}
 	log.Printf("Server config: \n Listen addr: %s:%d\n External DNS: %s \n",
-		cfg.Server.ListenAddr, cfg.Server.ListenPort, cfg.Server.ExternalDNS)
+		CurrentConfig.Server.ListenAddr, CurrentConfig.Server.ListenPort, CurrentConfig.Server.ExternalDNS)
 	newPrivDomains := make(map[string][4]byte)
 	var byteIpAddr [4]byte
-	for zName, zHosts := range cfg.NSZones {
+	for zName, zHosts := range CurrentConfig.NSZones {
 		for hName, hAddr := range zHosts {
 			for i, o := range strings.Split(hAddr, ".") {
 				resOct, err := strconv.Atoi(o)
@@ -147,7 +157,6 @@ func main() {
 			newPrivDomains[fmt.Sprintf("%s.%s.", hName, zName)] = byteIpAddr
 		}
 	}
-
 	privateDomains = newPrivDomains
 	privDomainsInfo := "Private domains: \n"
 	for k, _ := range newPrivDomains {
@@ -155,8 +164,7 @@ func main() {
 	}
 	log.Print(privDomainsInfo)
 	log.Println("Starting DNS server...")
-	ExternalDNS = fmt.Sprintf("%s:53", cfg.Server.ExternalDNS)
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: cfg.Server.ListenPort, IP: net.ParseIP(cfg.Server.ListenAddr)})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: CurrentConfig.Server.ListenPort, IP: net.ParseIP(CurrentConfig.Server.ListenAddr)})
 	if err != nil {
 		panic(err)
 	}
@@ -164,6 +172,11 @@ func main() {
 	for {
 		buf := make([]byte, maxBufferSize)
 		n, addr, _ := conn.ReadFromUDP(buf)
+		if !isAllowedIp(addr) {
+			conn.WriteToUDP(buf, addr)
+			continue
+		}
+
 		var dnsMsg dnsmessage.Message
 		if err = dnsMsg.Unpack(buf); err != nil {
 			log.Println(err)

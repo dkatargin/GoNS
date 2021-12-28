@@ -2,6 +2,9 @@ server:
   external_dns: "1.1.1.1"
   listen_addr: "0.0.0.0"
   listen_port: 53
+  allowed_ips:
+    - "10.0.0.0/24"
+    - "127.0.0.0/8"
 
 private_domains:
   home:
