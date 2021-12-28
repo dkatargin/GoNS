@@ -43,8 +43,12 @@ func newAResource(query dnsmessage.Name, a [4]byte) dnsmessage.Resource {
 
 func isAllowedIp(ipAddr *net.UDPAddr) bool {
 	for _, cidr := range CurrentConfig.Server.AllowedIps {
-		allowedIp, allowedNet, _ := net.ParseCIDR(cidr)
-		if allowedNet.Contains(ipAddr.IP) || allowedIp.String() == ipAddr.IP.String() {
+		_, allowedNet, _ := net.ParseCIDR(cidr)
+		if allowedNet == nil {
+			if cidr == ipAddr.IP.String() {
+				return true
+			}
+		} else if allowedNet.Contains(ipAddr.IP) {
 			return true
 		}
 	}
