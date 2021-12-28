@@ -139,10 +139,6 @@ func ServeDNS(addr *net.UDPAddr, conn *net.UDPConn, msg dnsmessage.Message, rawM
 	}
 
 	question := msg.Questions[0]
-	if question.Type != dnsmessage.TypeA {
-		log.Printf("unsupported dns request type %s", question.Type.String())
-		return
-	}
 	var resource dnsmessage.Resource
 	var (
 		queryNameStr = question.Name.String()
